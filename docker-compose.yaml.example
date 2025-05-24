@@ -1,0 +1,11 @@
+services:
+    uptime-kuma:
+        image: louislam/uptime-kuma:beta
+        restart: always
+        container_name: uptimekuma
+        network_mode: host
+        environment:
+            UPTIME_KUMA_CLOUDFLARED_TOKEN: 
+        volumes:
+            - ./data:/app/data
+
