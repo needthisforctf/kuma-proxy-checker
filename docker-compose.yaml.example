@@ -3,9 +3,35 @@ services:
         image: louislam/uptime-kuma:beta
         restart: always
         container_name: uptimekuma
-        network_mode: host
-        environment:
-            UPTIME_KUMA_CLOUDFLARED_TOKEN: 
+        labels:
+            - "traefik.enable=true"
+            - "traefik.docker.network=traefik-network"
+            - "traefik.http.routers.kuma.entrypoints=https"
+            - "traefik.http.routers.kuma.rule=Host(`kuma.example.org`)"
+            - "traefik.http.routers.kuma.tls=true"
+            - "traefik.http.routers.kuma.tls.certresolver=letsEncrypt"
+            - "traefik.http.routers.kuma.service=uptime-kuma"
+            - "traefik.http.services.uptime-kuma.loadbalancer.server.port=3001"
         volumes:
             - ./data:/app/data
-
+        networks:
+          kuma:
+              ipv4_address: 192.168.18.5
+    xray:
+        image: ghcr.io/xtls/xray-core:latest
+        restart: always
+        container_name: kuma_xray
+        volumes:
+            - ./xray_config.json:/etc/xray/config.json
+        networks:
+          kuma:
+              ipv4_address: 192.168.18.10
+# Xray needs to know an IP address of the container to work
+# Also, this is a custom network, you may want to add something like this into prerouting in nftables
+# ip saddr 192.168.18.0/24 counter masquerade
+networks:
+  kuma:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.18.0/24
