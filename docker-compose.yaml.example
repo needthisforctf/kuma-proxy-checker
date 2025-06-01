@@ -12,6 +12,9 @@ services:
             - "traefik.http.routers.kuma.tls.certresolver=letsEncrypt"
             - "traefik.http.routers.kuma.service=uptime-kuma"
             - "traefik.http.services.uptime-kuma.loadbalancer.server.port=3001"
+        # or just expose the port
+        ports:
+          - 3001:3001
         volumes:
             - ./data:/app/data
         networks:
@@ -22,7 +25,7 @@ services:
         restart: always
         container_name: kuma_xray
         volumes:
-            - ./xray_config.json:/etc/xray/config.json
+            - ./state/xray_config.json:/etc/xray/config.json
         networks:
           kuma:
               ipv4_address: 192.168.18.10
