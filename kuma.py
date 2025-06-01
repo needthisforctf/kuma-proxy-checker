@@ -1,62 +1,82 @@
 from uptime_kuma_api import UptimeKumaApi, ProxyProtocol, MonitorType
 from modules.inbounds import from_link
 from modules.config import config
+from utils import dicttools
 import yaml
 
-def add_proxies(api):
-    with open(config.PROXIES_YAML, "r") as file:
-        yml = yaml.safe_load(file)
 
-    [api.delete_proxy(x['id']) for x in api.get_proxies()]
-    for k, proxy_obj in yml['proxies'].items():
+def amend_proxies(api, yml):
+    existing_full = api.get_proxies()
+    existing = dicttools.trim_keys(
+        existing_full,
+        # important keys
+        ["protocol", "active", "auth", "host", "port"]
+        )
+
+    for proxy_obj in yml['proxies'].values():
         for v in proxy_obj:
-            if v['type'] != "meta":
-                p_data = from_link(v['in'])
-                if p_data['protocol'] == 'socks':
-                    v['_kuma_id'] = api.add_proxy(
-                        protocol=ProxyProtocol.SOCKS5H,
-                        active=True,
-                        auth=False,
-                        host=p_data['listen'],
-                        port=p_data['port'])['id']
+            p_data = from_link(v['in'])
+            if p_data['protocol'] == 'socks':
+                planned = {
+                    "protocol": ProxyProtocol.SOCKS5H,
+                    "active": True,
+                    "auth": False,
+                    "host": p_data['listen'],
+                    "port": p_data['port']
+                }
+                try:  # to search it
+                    v['_kuma_proxy'] = existing_full[existing.index(planned)]['id']
+                except ValueError:
+                    v['_kuma_proxy'] = api.add_proxy(**planned)['id']
 
-    with open(config.PROXIES_YAML, "w") as file:
-        yaml.dump(yml, file)
+    return yml
 
 
-def add_monitor_groups(api):
-    [api.delete_monitor(x['id']) for x in api.get_monitors()]
-    with open(config.PROXIES_YAML, "r") as file:
-        yml = yaml.safe_load(file)
+def amend_monitor_groups(api, yml):
+    existing_full = [x for x in api.get_monitors() if x['type'] == MonitorType.GROUP]
+    existing = dicttools.trim_keys(
+        existing_full,
+        ["type", "name"]  # important keys
+        )
 
+    if '_kuma_group' not in yml:
+        yml['_kuma_group'] = {}
     for k, v in yml['proxies'].items():
-        group_obj = api.add_monitor(type=MonitorType.GROUP, name=k)
-        if group_obj['msg'] == 'successAdded':
-            if '_kuma_groups' not in yml:
-                yml['_kuma_groups'] = {}
-            yml['_kuma_groups'][k] = group_obj['monitorID']
+        planned = {"type": MonitorType.GROUP, "name": k}
+        try:  # to search it
+            yml['_kuma_group'][k] = existing_full[existing.index(planned)]['id']
+        except ValueError:
+            group_obj = api.add_monitor(**planned)
+            if group_obj['msg'] == 'successAdded':
+                yml['_kuma_group'][k] = group_obj['monitorID']
+    return yml
 
-    with open(config.PROXIES_YAML, "w") as file:
-        yaml.dump(yml, file)
 
-
-def add_monitors(api):
-    with open(config.PROXIES_YAML, "r") as file:
-        yml = yaml.safe_load(file)
+def amend_monitors(api, yml):
+    existing = dicttools.trim_keys(
+        [x for x in api.get_monitors() if x['type'] != MonitorType.GROUP],
+        ["type", "url", "name", "proxyId", "parent"]  # important keys
+        )
 
     for link in yml['links']:
         for k, v in yml['proxies'].items():
             for proxy in v:
-                api.add_monitor(type=MonitorType.HTTP,
-                                url=link,
-                                name=f"{proxy['type']} {link.split("://")[1]}",
-                                proxyId=proxy['_kuma_id'],
-                                parent=yml['_kuma_groups'][k])
+                planned = {
+                    "type": MonitorType.HTTP,
+                    "url": link,
+                    "name": f"{proxy['type']} {link.split("://")[1]}",
+                    "proxyId": proxy['_kuma_proxy'],
+                    "parent": yml['_kuma_group'][k]
+                    }
+                if planned not in existing:
+                    api.add_monitor(**planned)
 
 
 if __name__ == "__main__":
     with UptimeKumaApi(config.KUMA_URL, timeout=30.0) as api:
         api.login(config.KUMA_USERNAME, config.KUMA_PASSWORD)
-        add_proxies(api)
-        add_monitor_groups(api)
-        add_monitors(api)
+        with open(config.PROXIES_YAML, "r") as file:
+            yml = yaml.safe_load(file)
+        yml = amend_proxies(api, yml)
+        yml = amend_monitor_groups(api, yml)
+        amend_monitors(api, yml)
