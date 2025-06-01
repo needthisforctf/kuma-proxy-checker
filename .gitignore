@@ -1,3 +1,8 @@
+xray_config.json
+data.yaml
+.kate-spw
+data/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
